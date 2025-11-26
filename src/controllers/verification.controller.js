@@ -109,49 +109,53 @@ exports.requestOTP = async (req, res) => {
     const sentMethods = [];
     const failedMethods = [];
 
-    // Send OTP via email
-    try {
-      await sendOTPEmail(voter.email, otp, voter.regNo);
-      sentMethods.push('email');
-    } catch (emailError) {
-      console.error('Failed to send OTP email:', emailError);
-      failedMethods.push('email');
-      
-      // Log email error
-      await logAudit({
-        actorType: 'system',
-        action: 'OTP_EMAIL_FAILED',
-        entity: 'verification',
-        entityId: verification.id,
-        payload: { 
-          voterId: voter.id, 
-          error: emailError.message,
-          regNo: voter.regNo,
-        },
+    // Send OTP via email (non-blocking - don't await, let it run in background)
+    sendOTPEmail(voter.email, otp, voter.regNo)
+      .then(() => {
+        sentMethods.push('email');
+        console.log('✅ OTP email sent successfully');
+      })
+      .catch((emailError) => {
+        console.error('Failed to send OTP email:', emailError);
+        failedMethods.push('email');
+        
+        // Log email error (non-blocking)
+        logAudit({
+          actorType: 'system',
+          action: 'OTP_EMAIL_FAILED',
+          entity: 'verification',
+          entityId: verification.id,
+          payload: { 
+            voterId: voter.id, 
+            error: emailError.message,
+            regNo: voter.regNo,
+          },
+        }).catch(err => console.error('Failed to log email error:', err));
       });
-    }
 
-    // Send OTP via SMS
-    try {
-      await sendOTPSMS(voter.phone, otp, voter.regNo);
-      sentMethods.push('SMS');
-    } catch (smsError) {
-      console.error('Failed to send OTP SMS:', smsError);
-      failedMethods.push('SMS');
-      
-      // Log SMS error
-      await logAudit({
-        actorType: 'system',
-        action: 'OTP_SMS_FAILED',
-        entity: 'verification',
-        entityId: verification.id,
-        payload: { 
-          voterId: voter.id, 
-          error: smsError.message,
-          regNo: voter.regNo,
-        },
+    // Send OTP via SMS (non-blocking - don't await, let it run in background)
+    sendOTPSMS(voter.phone, otp, voter.regNo)
+      .then(() => {
+        sentMethods.push('SMS');
+        console.log('✅ OTP SMS sent successfully');
+      })
+      .catch((smsError) => {
+        console.error('Failed to send OTP SMS:', smsError);
+        failedMethods.push('SMS');
+        
+        // Log SMS error (non-blocking)
+        logAudit({
+          actorType: 'system',
+          action: 'OTP_SMS_FAILED',
+          entity: 'verification',
+          entityId: verification.id,
+          payload: { 
+            voterId: voter.id, 
+            error: smsError.message,
+            regNo: voter.regNo,
+          },
+        }).catch(err => console.error('Failed to log SMS error:', err));
       });
-    }
 
     // If both methods failed, return error
     if (sentMethods.length === 0) {
