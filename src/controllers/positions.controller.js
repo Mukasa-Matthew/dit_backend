@@ -3,17 +3,24 @@ const { logAudit } = require('../utils/auditLogger');
 
 // Helper function to parse dates consistently
 // Dates from datetime-local inputs are in format "YYYY-MM-DDTHH:mm" (no timezone)
-// We treat them as UTC to avoid timezone conversion issues
+// IMPORTANT: datetime-local inputs are interpreted in the SERVER's local timezone
+// JavaScript's Date constructor treats strings without timezone as local time
+// This ensures that "9:29 PM" entered by user is stored as "9:29 PM server local time"
 const parseDate = (dateString) => {
   if (!dateString) return new Date(dateString);
-  // If date string doesn't have timezone, append 'Z' to treat as UTC
-  if (!dateString.includes('Z') && !dateString.match(/[+-]\d{2}:\d{2}$/)) {
-    // Add seconds if missing and append Z for UTC
-    const normalized = dateString.includes(':') && dateString.split(':').length === 2 
-      ? `${dateString}:00Z` 
-      : `${dateString}Z`;
-    return new Date(normalized);
+  
+  // If date string has timezone info (Z or +/-), use it directly
+  if (dateString.includes('Z') || dateString.match(/[+-]\d{2}:\d{2}$/)) {
+    return new Date(dateString);
   }
+  
+  // For datetime-local format (YYYY-MM-DDTHH:mm), parse as local time
+  // JavaScript automatically interprets this in the server's local timezone
+  // Add seconds if missing
+  if (dateString.includes(':') && dateString.split(':').length === 2) {
+    return new Date(`${dateString}:00`);
+  }
+  
   return new Date(dateString);
 };
 
@@ -105,10 +112,24 @@ exports.createPosition = async (req, res) => {
     }
 
     // Validate dates
+    console.log('Create Position - Raw dates from frontend:', {
+      nominationOpens,
+      nominationCloses,
+      votingOpens,
+      votingCloses,
+    });
+    
     const nomOpen = parseDate(nominationOpens);
     const nomClose = parseDate(nominationCloses);
     const voteOpen = parseDate(votingOpens);
     const voteClose = parseDate(votingCloses);
+    
+    console.log('Create Position - Parsed dates (UTC):', {
+      nominationOpens: nomOpen.toISOString(),
+      nominationCloses: nomClose.toISOString(),
+      votingOpens: voteOpen.toISOString(),
+      votingCloses: voteClose.toISOString(),
+    });
 
     if (nomClose <= nomOpen) {
       return res.status(400).json({ error: 'Nomination close date must be after open date' });
@@ -275,28 +296,63 @@ exports.deletePosition = async (req, res) => {
 // Get open positions (for candidates to nominate)
 exports.getOpenPositions = async (req, res) => {
   try {
+    // Get current time - this will be in the server's local timezone
+    // Since positions are stored by parsing datetime-local as local time,
+    // we compare using local time (which Prisma/MySQL will handle correctly)
     const now = new Date();
+    console.log('Backend getOpenPositions - now (local):', now.toString());
+    console.log('Backend getOpenPositions - now (UTC):', now.toISOString());
     
-    // Get all positions
+    // First, get ALL positions to debug
     const allPositions = await prisma.position.findMany({
       orderBy: {
         nominationCloses: 'asc',
       },
     });
-
-    // Filter positions where nomination window is currently open
-    // Use timestamp comparison to avoid timezone issues
-    const openPositions = allPositions.filter((position) => {
-      const nomOpens = new Date(position.nominationOpens);
-      const nomCloses = new Date(position.nominationCloses);
-      
-      // Compare timestamps directly
+    
+    console.log(`Backend getOpenPositions - Total positions in DB: ${allPositions.length}`);
+    
+    // Debug: Log all positions with their dates
+    allPositions.forEach((pos, idx) => {
+      const nomOpens = new Date(pos.nominationOpens);
+      const nomCloses = new Date(pos.nominationCloses);
       const nowTime = now.getTime();
       const opensTime = nomOpens.getTime();
       const closesTime = nomCloses.getTime();
+      const isOpen = nowTime >= opensTime && nowTime <= closesTime;
       
-      return nowTime >= opensTime && nowTime <= closesTime;
+      console.log(`Position ${idx + 1}: ${pos.name}`);
+      console.log(`  nominationOpens (DB): ${pos.nominationOpens} (ISO: ${nomOpens.toISOString()})`);
+      console.log(`  nominationCloses (DB): ${pos.nominationCloses} (ISO: ${nomCloses.toISOString()})`);
+      console.log(`  Now: ${now.toISOString()}`);
+      console.log(`  Comparison: ${nowTime} >= ${opensTime} && ${nowTime} <= ${closesTime}`);
+      console.log(`  Is Open: ${isOpen}`);
     });
+    
+    // Use Prisma query to filter positions where nomination window is currently open
+    // This ensures database-level filtering with consistent timezone handling
+    const openPositions = await prisma.position.findMany({
+      where: {
+        nominationOpens: {
+          lte: now, // Nomination has opened (now >= nominationOpens)
+        },
+        nominationCloses: {
+          gte: now, // Nomination hasn't closed yet (now <= nominationCloses)
+        },
+      },
+      orderBy: {
+        nominationCloses: 'asc',
+      },
+    });
+
+    console.log(`Backend getOpenPositions - found ${openPositions.length} open positions (via Prisma query)`);
+    if (openPositions.length > 0) {
+      console.log('Sample position:', {
+        name: openPositions[0].name,
+        nominationOpens: openPositions[0].nominationOpens,
+        nominationCloses: openPositions[0].nominationCloses,
+      });
+    }
 
     res.json(openPositions);
   } catch (error) {

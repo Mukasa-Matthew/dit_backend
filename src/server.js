@@ -83,10 +83,16 @@ async function startServer() {
     await testConnection();
     
     // Start server
-    app.listen(PORT, '0.0.0.0', () => {
+    const env = process.env.NODE_ENV || 'development';
+    const host = env === 'production' ? '0.0.0.0' : 'localhost';
+    const accessUrl = env === 'production' 
+      ? `http://64.23.169.136:${PORT}` 
+      : `http://localhost:${PORT}`;
+    
+    app.listen(PORT, host, () => {
       console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`📝 Environment: production`);
-      console.log(`🌐 Access at: http://64.23.169.136:${PORT}`);
+      console.log(`📝 Environment: ${env}`);
+      console.log(`🌐 Access at: ${accessUrl}`);
     });
   } catch (error) {
     console.error('\n❌ Failed to start server due to database connection error');
