@@ -51,6 +51,13 @@ exports.sendOTPSMS = async (phoneNumber, otp, regNo) => {
   // Create SMS message
   const message = `Your E-Voting verification code is: ${otp}\nReg No: ${regNo}\nValid for 5 minutes. Do not share this code.`;
 
+  console.log('📱 Sending SMS:', {
+    to: formattedPhone,
+    apiUrl: smsApiUrl,
+    messageLength: message.length,
+    timeout: 30000,
+  });
+
   try {
     // YoolaSMS API format
     const requestData = JSON.stringify({
@@ -67,10 +74,13 @@ exports.sendOTPSMS = async (phoneNumber, otp, regNo) => {
         'Content-Type': 'application/json',
       },
       data: requestData,
-      timeout: 10000, // 10 second timeout
+      timeout: 30000, // 30 second timeout (increased for slow SMS providers)
     };
 
+    const startTime = Date.now();
     const response = await axios.request(config);
+    const duration = Date.now() - startTime;
+    console.log(`✅ SMS API responded in ${duration}ms`);
 
     // Handle YoolaSMS response
     if (response.status === 200 || response.status === 201) {
@@ -97,6 +107,24 @@ exports.sendOTPSMS = async (phoneNumber, otp, regNo) => {
     }
   } catch (error) {
     console.error('❌ Failed to send OTP SMS:', error.message);
+    console.error('Error details:', {
+      code: error.code,
+      message: error.message,
+      timeout: error.code === 'ECONNABORTED',
+    });
+    
+    // Check if it's a timeout error
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      console.error('⏱️ SMS API timeout - provider may be slow or unreachable');
+      throw new Error(
+        'SMS API request timed out. The SMS provider may be slow or unreachable.\n' +
+        'Please check:\n' +
+        '1. SMS_API_URL in .env is correct\n' +
+        '2. Internet connection is active\n' +
+        '3. SMS provider service is available\n' +
+        '4. Try again in a few moments'
+      );
+    }
     
     // Provide helpful error messages
     if (error.response) {
@@ -179,7 +207,7 @@ exports.sendSMS = async (phoneNumber, message) => {
         'Content-Type': 'application/json',
       },
       data: requestData,
-      timeout: 10000,
+      timeout: 30000, // 30 second timeout (increased for slow SMS providers)
     };
 
     const response = await axios.request(config);
