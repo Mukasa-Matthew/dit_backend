@@ -4,12 +4,19 @@ const { logAudit } = require('../utils/auditLogger');
 // Helper function to parse dates consistently (same as positions controller)
 const parseDate = (dateString) => {
   if (!dateString) return null;
-  // If date string doesn't have timezone, create Date object directly
-  // This will interpret the string as local time, which is what datetime-local inputs provide
-  if (!dateString.includes('Z') && !dateString.match(/[+-]\d{2}:\d{2}$/)) {
+  
+  // If date string has timezone info (Z or +/-), use it directly
+  if (dateString.includes('Z') || dateString.match(/[+-]\d{2}:\d{2}$/)) {
     return new Date(dateString);
   }
-  // If it has timezone info, parse it as is
+  
+  // For datetime-local format (YYYY-MM-DDTHH:mm), parse as local time
+  // JavaScript automatically interprets this in the server's local timezone
+  // Add seconds if missing
+  if (dateString.includes(':') && dateString.split(':').length === 2) {
+    return new Date(`${dateString}:00`);
+  }
+  
   return new Date(dateString);
 };
 
@@ -52,17 +59,49 @@ exports.getBallot = async (req, res) => {
     }
 
     // Get all positions with open voting windows
-    // Use parseDate to ensure consistent local time comparison
-    const now = parseDate(new Date().toISOString().slice(0, 16)); // Get current local time string (YYYY-MM-DDTHH:mm)
-    console.log('Backend getBallot - now (Local Time):', now.toISOString());
+    // Use current time for comparison (Prisma will handle timezone correctly)
+    const now = new Date();
+    console.log('Backend getBallot - Current time:', {
+      local: now.toString(),
+      iso: now.toISOString(),
+      timestamp: now.getTime(),
+    });
     
+    // First, get ALL positions to debug
+    const allPositions = await prisma.position.findMany({
+      orderBy: {
+        name: 'asc',
+      },
+    });
+    
+    console.log(`Backend getBallot - Total positions in DB: ${allPositions.length}`);
+    
+    // Debug: Log all positions with their voting windows
+    allPositions.forEach((pos, idx) => {
+      const voteOpens = new Date(pos.votingOpens);
+      const voteCloses = new Date(pos.votingCloses);
+      const nowTime = now.getTime();
+      const opensTime = voteOpens.getTime();
+      const closesTime = voteCloses.getTime();
+      const isOpen = nowTime >= opensTime && nowTime <= closesTime;
+      
+      console.log(`Position ${idx + 1}: ${pos.name}`);
+      console.log(`  votingOpens (DB): ${pos.votingOpens} (ISO: ${voteOpens.toISOString()}, timestamp: ${opensTime})`);
+      console.log(`  votingCloses (DB): ${pos.votingCloses} (ISO: ${voteCloses.toISOString()}, timestamp: ${closesTime})`);
+      console.log(`  Now: ${now.toISOString()} (timestamp: ${nowTime})`);
+      console.log(`  Comparison: ${nowTime} >= ${opensTime} && ${nowTime} <= ${closesTime}`);
+      console.log(`  Is Open: ${isOpen}`);
+    });
+    
+    // Use Prisma query to filter positions where voting window is currently open
+    // This ensures database-level filtering with consistent timezone handling
     const positions = await prisma.position.findMany({
       where: {
         votingOpens: {
-          lte: now,
+          lte: now, // Voting has opened (now >= votingOpens)
         },
         votingCloses: {
-          gte: now,
+          gte: now, // Voting hasn't closed yet (now <= votingCloses)
         },
       },
       orderBy: {
@@ -70,13 +109,17 @@ exports.getBallot = async (req, res) => {
       },
     });
     
-    console.log(`Backend getBallot - found ${positions.length} open positions for voting`);
+    console.log(`Backend getBallot - found ${positions.length} open positions for voting (via Prisma query)`);
     if (positions.length > 0) {
-      console.log('Sample position:', {
-        name: positions[0].name,
-        votingOpens: positions[0].votingOpens.toISOString(),
-        votingCloses: positions[0].votingCloses.toISOString(),
-      });
+      console.log('Open positions:', positions.map(p => ({
+        name: p.name,
+        votingOpens: new Date(p.votingOpens).toISOString(),
+        votingCloses: new Date(p.votingCloses).toISOString(),
+      })));
+    } else if (allPositions.length > 0) {
+      console.warn('⚠️ Positions exist but none are open for voting!');
+      console.warn('Check the voting window times vs current time');
+      console.warn('This might be a timezone issue - check server logs above for date comparisons');
     }
 
     // Get all approved candidates for these positions
