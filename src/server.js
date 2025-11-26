@@ -40,8 +40,17 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve uploaded files
-app.use('/uploads', express.static('uploads'));
+// Serve uploaded files with proper headers
+app.use('/uploads', express.static('uploads', {
+  maxAge: '1y', // Cache images for 1 year
+  etag: true,
+  lastModified: true,
+  setHeaders: (res, path) => {
+    // Set CORS headers for images
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  }
+}));
 
 // Routes
 app.use('/api/auth', require('./routes/auth.routes'));

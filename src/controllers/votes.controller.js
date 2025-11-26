@@ -1,6 +1,18 @@
 const { prisma } = require('../config/prisma');
 const { logAudit } = require('../utils/auditLogger');
 
+// Helper function to parse dates consistently (same as positions controller)
+const parseDate = (dateString) => {
+  if (!dateString) return null;
+  // If date string doesn't have timezone, create Date object directly
+  // This will interpret the string as local time, which is what datetime-local inputs provide
+  if (!dateString.includes('Z') && !dateString.match(/[+-]\d{2}:\d{2}$/)) {
+    return new Date(dateString);
+  }
+  // If it has timezone info, parse it as is
+  return new Date(dateString);
+};
+
 /**
  * Get ballot data (positions and candidates)
  * Uses ballot token to verify voter and get voting data
@@ -40,7 +52,10 @@ exports.getBallot = async (req, res) => {
     }
 
     // Get all positions with open voting windows
-    const now = new Date();
+    // Use parseDate to ensure consistent local time comparison
+    const now = parseDate(new Date().toISOString().slice(0, 16)); // Get current local time string (YYYY-MM-DDTHH:mm)
+    console.log('Backend getBallot - now (Local Time):', now.toISOString());
+    
     const positions = await prisma.position.findMany({
       where: {
         votingOpens: {
@@ -54,6 +69,15 @@ exports.getBallot = async (req, res) => {
         name: 'asc',
       },
     });
+    
+    console.log(`Backend getBallot - found ${positions.length} open positions for voting`);
+    if (positions.length > 0) {
+      console.log('Sample position:', {
+        name: positions[0].name,
+        votingOpens: positions[0].votingOpens.toISOString(),
+        votingCloses: positions[0].votingCloses.toISOString(),
+      });
+    }
 
     // Get all approved candidates for these positions
     const positionIds = positions.map((p) => p.id);
@@ -76,6 +100,41 @@ exports.getBallot = async (req, res) => {
         name: 'asc',
       },
     });
+    
+    console.log(`Backend getBallot - found ${candidates.length} approved candidates`);
+    if (candidates.length > 0) {
+      console.log('Sample candidate:', {
+        name: candidates[0].name,
+        position: candidates[0].position.name,
+        status: candidates[0].status,
+      });
+    } else if (positions.length > 0) {
+      console.warn('⚠️ Positions found but no approved candidates!');
+      // Check if there are any candidates (approved or not) for debugging
+      const allCandidates = await prisma.candidate.findMany({
+        where: {
+          positionId: {
+            in: positionIds,
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          position: {
+            select: { name: true },
+          },
+        },
+      });
+      console.log(`Total candidates (all statuses): ${allCandidates.length}`);
+      if (allCandidates.length > 0) {
+        const statusCounts = allCandidates.reduce((acc, c) => {
+          acc[c.status] = (acc[c.status] || 0) + 1;
+          return acc;
+        }, {});
+        console.log('Candidate status breakdown:', statusCounts);
+      }
+    }
 
     res.json({
       ballot: {
@@ -133,7 +192,8 @@ exports.castVote = async (req, res) => {
     }
 
     // Validate voting window is still open
-    const now = new Date();
+    // Use parseDate to ensure consistent local time comparison
+    const now = parseDate(new Date().toISOString().slice(0, 16)); // Get current local time string
     const positions = await prisma.position.findMany({
       where: {
         id: {
