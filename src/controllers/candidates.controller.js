@@ -220,7 +220,16 @@ exports.getAllNominations = async (req, res) => {
 
     const nominations = await prisma.candidate.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        name: true,
+        program: true,
+        photoUrl: true,
+        manifestoUrl: true,
+        status: true,
+        reason: true,
+        createdAt: true,
+        updatedAt: true,
         position: {
           select: {
             id: true,
@@ -234,6 +243,11 @@ exports.getAllNominations = async (req, res) => {
             name: true,
             regNo: true,
             program: true,
+          },
+        },
+        _count: {
+          select: {
+            votes: true,
           },
         },
       },
