@@ -8,6 +8,8 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    console.log(`Login attempt for: ${email}`);
+
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
@@ -26,17 +28,20 @@ exports.login = async (req, res) => {
     });
 
     if (!user) {
+      console.log(`Login failed: User not found for email: ${email}`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     // Check if user is active
     if (user.status !== 'ACTIVE') {
+      console.log(`Login failed: Account inactive for email: ${email}, status: ${user.status}`);
       return res.status(401).json({ error: 'Account is inactive' });
     }
 
     // Verify password
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
+      console.log(`Login failed: Invalid password for email: ${email}`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -52,6 +57,8 @@ exports.login = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
     );
+
+    console.log(`Login successful for: ${email}, role: ${user.role}`);
 
     // Log audit (non-blocking - don't wait for it)
     logAudit({
