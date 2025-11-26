@@ -60,6 +60,7 @@ exports.getBallot = async (req, res) => {
 
     // Get all positions with open voting windows
     // Use current time for comparison (Prisma will handle timezone correctly)
+    // Use Date object directly - Prisma handles timezone conversion correctly
     const now = new Date();
     console.log('Backend getBallot - Current time:', {
       local: now.toString(),
@@ -235,8 +236,15 @@ exports.castVote = async (req, res) => {
     }
 
     // Validate voting window is still open
-    // Use parseDate to ensure consistent local time comparison
-    const now = parseDate(new Date().toISOString().slice(0, 16)); // Get current local time string
+    // Use Date object directly - Prisma handles timezone conversion correctly
+    // This must match the logic in getBallot for consistency
+    const now = new Date();
+    console.log('Backend castVote - Current time:', {
+      local: now.toString(),
+      iso: now.toISOString(),
+      timestamp: now.getTime(),
+    });
+    
     const positions = await prisma.position.findMany({
       where: {
         id: {
@@ -251,6 +259,8 @@ exports.castVote = async (req, res) => {
       },
     });
 
+    console.log(`Backend castVote - found ${positions.length} open positions out of ${votes.length} requested`);
+    
     if (positions.length !== votes.length) {
       // Get position names that are not open
       const allPositions = await prisma.position.findMany({
@@ -260,9 +270,22 @@ exports.castVote = async (req, res) => {
         select: { id: true, name: true, votingOpens: true, votingCloses: true },
       });
       
+      // Use the same now value for consistency
       const closedPositions = allPositions.filter((p) => {
-        const now = new Date();
-        return now < p.votingOpens || now > p.votingCloses;
+        const voteOpens = new Date(p.votingOpens);
+        const voteCloses = new Date(p.votingCloses);
+        const isOpen = now >= voteOpens && now <= voteCloses;
+        if (!isOpen) {
+          console.log(`Position ${p.name} is closed:`, {
+            votingOpens: voteOpens.toISOString(),
+            votingCloses: voteCloses.toISOString(),
+            now: now.toISOString(),
+            opensTime: voteOpens.getTime(),
+            closesTime: voteCloses.getTime(),
+            nowTime: now.getTime(),
+          });
+        }
+        return !isOpen;
       });
       
       return res.status(400).json({ 

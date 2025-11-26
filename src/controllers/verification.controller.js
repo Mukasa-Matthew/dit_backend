@@ -53,11 +53,12 @@ exports.requestOTP = async (req, res) => {
     }
 
     // Check for recent OTP request (rate limiting)
+    // Allow OTP requests every 60 seconds (1 minute) to prevent abuse
     const recentVerification = await prisma.verification.findFirst({
       where: {
         voterId: voter.id,
         issuedAt: {
-          gte: new Date(Date.now() - 2 * 60 * 1000), // Last 2 minutes
+          gte: new Date(Date.now() - 60 * 1000), // Last 60 seconds
         },
         verifiedAt: null, // Not yet verified
       },
@@ -67,9 +68,11 @@ exports.requestOTP = async (req, res) => {
     });
 
     if (recentVerification) {
+      const secondsRemaining = Math.ceil((60 * 1000 - (Date.now() - recentVerification.issuedAt.getTime())) / 1000);
       return res.status(429).json({ 
         error: 'Please wait before requesting another OTP',
-        retryAfter: 120, // seconds
+        hint: `You can request a new OTP in ${secondsRemaining} second${secondsRemaining !== 1 ? 's' : ''}`,
+        retryAfter: secondsRemaining,
       });
     }
 
