@@ -9,8 +9,9 @@ dotenv.config();
 const app = express();
 
 // Middleware
+// Production CORS - allow frontend origin
 app.use(cors({
-  origin: '*', // Allow all origins for now (you can restrict this in production)
+  origin: process.env.FRONTEND_URL || 'http://64.23.169.136:3063',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -42,8 +43,8 @@ app.get('/api/health', (req, res) => {
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(err.status || 500).json({
-    error: err.message || 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    error: err.message || 'Internal Server Error'
+    // Stack traces not exposed in production for security
   });
 });
 
@@ -61,9 +62,10 @@ async function startServer() {
     await testConnection();
     
     // Start server
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`📝 Environment: production`);
+      console.log(`🌐 Access at: http://64.23.169.136:${PORT}`);
     });
   } catch (error) {
     console.error('\n❌ Failed to start server due to database connection error');

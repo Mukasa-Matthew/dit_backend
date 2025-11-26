@@ -156,8 +156,8 @@ exports.getAllVoters = async (req, res) => {
       query: req.query,
     });
     res.status(500).json({ 
-      error: 'Failed to fetch voters',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      error: 'Failed to fetch voters'
+      // Error details not exposed in production for security
     });
   }
 };

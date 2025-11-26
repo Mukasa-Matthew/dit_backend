@@ -295,22 +295,7 @@ exports.getOpenPositions = async (req, res) => {
       const opensTime = nomOpens.getTime();
       const closesTime = nomCloses.getTime();
       
-      const isOpen = nowTime >= opensTime && nowTime <= closesTime;
-      
-      // Debug logging (can be removed in production)
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`Position: ${position.name}`, {
-          now: now.toISOString(),
-          opens: nomOpens.toISOString(),
-          closes: nomCloses.toISOString(),
-          isOpen,
-          nowTime,
-          opensTime,
-          closesTime
-        });
-      }
-      
-      return isOpen;
+      return nowTime >= opensTime && nowTime <= closesTime;
     });
 
     res.json(openPositions);

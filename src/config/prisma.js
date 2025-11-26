@@ -30,7 +30,7 @@ const pool = mysql.createPool(poolConfig);
 // Create Prisma Client instance with connection pooling optimizations
 // Prisma 6 doesn't require adapters - it uses DATABASE_URL directly from schema.prisma
 const prisma = new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+  log: ['error'], // Production: only log errors
   datasources: {
     db: {
       url: process.env.DATABASE_URL,
