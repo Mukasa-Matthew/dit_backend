@@ -105,54 +105,53 @@ exports.requestOTP = async (req, res) => {
       },
     });
 
-    // Send OTP via SMS only (email removed)
-    try {
-      await sendOTPSMS(voter.phone, otp, voter.regNo);
-      console.log('✅ OTP SMS sent successfully');
-      
-      // Log audit
-      await logAudit({
-        actorType: 'system',
-        action: 'OTP_REQUESTED',
-        entity: 'verification',
-        entityId: verification.id,
-        payload: { 
-          voterId: voter.id,
-          regNo: voter.regNo,
-          method: 'SMS',
-        },
+    // Send OTP via SMS (non-blocking - don't wait for slow API response)
+    // The SMS is being sent, but the API response is slow, so we respond immediately
+    console.log('📱 Initiating SMS send (non-blocking)...');
+    
+    // Start SMS sending in background (don't await)
+    sendOTPSMS(voter.phone, otp, voter.regNo)
+      .then(() => {
+        console.log('✅ OTP SMS sent successfully (confirmed)');
+      })
+      .catch((smsError) => {
+        console.error('⚠️ SMS sending failed (but may have been delivered):', smsError.message);
+        // Log error but don't block the response
+        logAudit({
+          actorType: 'system',
+          action: 'OTP_SMS_FAILED',
+          entity: 'verification',
+          entityId: verification.id,
+          payload: { 
+            voterId: voter.id, 
+            error: smsError.message,
+            regNo: voter.regNo,
+            note: 'SMS may have been delivered despite API timeout',
+          },
+        }).catch(err => console.error('Failed to log SMS error:', err));
       });
+    
+    // Log audit (non-blocking)
+    logAudit({
+      actorType: 'system',
+      action: 'OTP_REQUESTED',
+      entity: 'verification',
+      entityId: verification.id,
+      payload: { 
+        voterId: voter.id,
+        regNo: voter.regNo,
+        method: 'SMS',
+      },
+    }).catch(err => console.error('Failed to log OTP request:', err));
 
-      res.json({
-        message: 'OTP sent successfully to your phone',
-        expiresIn: 300, // 5 minutes in seconds
-        hint: 'Check your SMS for the verification code',
-        sentVia: ['SMS'],
-      });
-    } catch (smsError) {
-      console.error('Failed to send OTP SMS:', smsError);
-      
-      // Log SMS error
-      await logAudit({
-        actorType: 'system',
-        action: 'OTP_SMS_FAILED',
-        entity: 'verification',
-        entityId: verification.id,
-        payload: { 
-          voterId: voter.id, 
-          error: smsError.message,
-          regNo: voter.regNo,
-        },
-      });
-
-      return res.status(500).json({ 
-        error: 'Failed to send OTP via SMS',
-        hint: 'Please contact administrator. SMS service may be misconfigured.',
-        details: {
-          smsError: smsError.message,
-        },
-      });
-    }
+    // Respond immediately - SMS is being sent in background
+    // Even if API times out, SMS is usually delivered
+    res.json({
+      message: 'OTP is being sent to your phone',
+      expiresIn: 300, // 5 minutes in seconds
+      hint: 'Check your SMS for the verification code. It may take a few moments to arrive.',
+      sentVia: ['SMS'],
+    });
   } catch (error) {
     console.error('Request OTP error:', error);
     res.status(500).json({ error: 'Failed to request OTP' });
