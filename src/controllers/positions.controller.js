@@ -1,6 +1,22 @@
 const { prisma } = require('../config/prisma');
 const { logAudit } = require('../utils/auditLogger');
 
+// Helper function to parse dates consistently
+// Dates from datetime-local inputs are in format "YYYY-MM-DDTHH:mm" (no timezone)
+// We treat them as UTC to avoid timezone conversion issues
+const parseDate = (dateString) => {
+  if (!dateString) return new Date(dateString);
+  // If date string doesn't have timezone, append 'Z' to treat as UTC
+  if (!dateString.includes('Z') && !dateString.match(/[+-]\d{2}:\d{2}$/)) {
+    // Add seconds if missing and append Z for UTC
+    const normalized = dateString.includes(':') && dateString.split(':').length === 2 
+      ? `${dateString}:00Z` 
+      : `${dateString}Z`;
+    return new Date(normalized);
+  }
+  return new Date(dateString);
+};
+
 // Get all positions
 exports.getAllPositions = async (req, res) => {
   try {
@@ -89,10 +105,10 @@ exports.createPosition = async (req, res) => {
     }
 
     // Validate dates
-    const nomOpen = new Date(nominationOpens);
-    const nomClose = new Date(nominationCloses);
-    const voteOpen = new Date(votingOpens);
-    const voteClose = new Date(votingCloses);
+    const nomOpen = parseDate(nominationOpens);
+    const nomClose = parseDate(nominationCloses);
+    const voteOpen = parseDate(votingOpens);
+    const voteClose = parseDate(votingCloses);
 
     if (nomClose <= nomOpen) {
       return res.status(400).json({ error: 'Nomination close date must be after open date' });
@@ -155,16 +171,16 @@ exports.updatePosition = async (req, res) => {
 
     // Validate dates if provided
     if (nominationOpens && nominationCloses) {
-      const nomOpen = new Date(nominationOpens);
-      const nomClose = new Date(nominationCloses);
+      const nomOpen = parseDate(nominationOpens);
+      const nomClose = parseDate(nominationCloses);
       if (nomClose <= nomOpen) {
         return res.status(400).json({ error: 'Nomination close date must be after open date' });
       }
     }
 
     if (votingOpens && votingCloses) {
-      const voteOpen = new Date(votingOpens);
-      const voteClose = new Date(votingCloses);
+      const voteOpen = parseDate(votingOpens);
+      const voteClose = parseDate(votingCloses);
       if (voteClose <= voteOpen) {
         return res.status(400).json({ error: 'Voting close date must be after open date' });
       }
@@ -176,10 +192,10 @@ exports.updatePosition = async (req, res) => {
       data: {
         ...(name && { name }),
         ...(seats && { seats: parseInt(seats) }),
-        ...(nominationOpens && { nominationOpens: new Date(nominationOpens) }),
-        ...(nominationCloses && { nominationCloses: new Date(nominationCloses) }),
-        ...(votingOpens && { votingOpens: new Date(votingOpens) }),
-        ...(votingCloses && { votingCloses: new Date(votingCloses) }),
+        ...(nominationOpens && { nominationOpens: parseDate(nominationOpens) }),
+        ...(nominationCloses && { nominationCloses: parseDate(nominationCloses) }),
+        ...(votingOpens && { votingOpens: parseDate(votingOpens) }),
+        ...(votingCloses && { votingCloses: parseDate(votingCloses) }),
       },
     });
 
@@ -260,22 +276,44 @@ exports.deletePosition = async (req, res) => {
 exports.getOpenPositions = async (req, res) => {
   try {
     const now = new Date();
-
-    const positions = await prisma.position.findMany({
-      where: {
-        nominationOpens: {
-          lte: now,
-        },
-        nominationCloses: {
-          gte: now,
-        },
-      },
+    
+    // Get all positions
+    const allPositions = await prisma.position.findMany({
       orderBy: {
         nominationCloses: 'asc',
       },
     });
 
-    res.json(positions);
+    // Filter positions where nomination window is currently open
+    // Use timestamp comparison to avoid timezone issues
+    const openPositions = allPositions.filter((position) => {
+      const nomOpens = new Date(position.nominationOpens);
+      const nomCloses = new Date(position.nominationCloses);
+      
+      // Compare timestamps directly
+      const nowTime = now.getTime();
+      const opensTime = nomOpens.getTime();
+      const closesTime = nomCloses.getTime();
+      
+      const isOpen = nowTime >= opensTime && nowTime <= closesTime;
+      
+      // Debug logging (can be removed in production)
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`Position: ${position.name}`, {
+          now: now.toISOString(),
+          opens: nomOpens.toISOString(),
+          closes: nomCloses.toISOString(),
+          isOpen,
+          nowTime,
+          opensTime,
+          closesTime
+        });
+      }
+      
+      return isOpen;
+    });
+
+    res.json(openPositions);
   } catch (error) {
     console.error('Get open positions error:', error);
     res.status(500).json({ error: 'Failed to fetch open positions' });
