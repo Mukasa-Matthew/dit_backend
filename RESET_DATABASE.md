@@ -161,3 +161,5 @@ npx prisma migrate resolve --applied <migration_name>
 - Verify MySQL is running: `mysql -u root -p`
 - Check database credentials
 
+
+
